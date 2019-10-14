@@ -16,6 +16,15 @@ page 50100 test
                 field("No."; "No.")
                 {
                     ApplicationArea = All;
+                    Style = Ambiguous;
+                }
+                field(Address; Address)
+                {
+                    ApplicationArea = All;
+                }
+                field("Currency Code"; "Currency Code")
+                {
+                    ApplicationArea = All;
                 }
                 field(Name; Name)
                 {
@@ -25,4 +34,23 @@ page 50100 test
         }
     }
 
+    actions
+    {
+        area(Processing)
+        {
+            action(ActionName)
+            {
+                ApplicationArea = All;
+                Caption = 'Caption', comment = 'NLB="YourLanguageCaption"';
+                Promoted = true;
+                PromotedCategory = Process;
+                PromotedIsBig = true;
+                Image = Print;
+                trigger OnAction()
+                begin
+                    Message('test');
+                end;
+            }
+        }
+    }
 }
