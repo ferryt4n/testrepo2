@@ -3,7 +3,7 @@ page 50100 test
 
     PageType = List;
     SourceTable = Customer;
-    Caption = 'test';
+    Caption = 'test12345';
     ApplicationArea = All;
     UsageCategory = Lists;
 
