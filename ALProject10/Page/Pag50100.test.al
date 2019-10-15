@@ -3,7 +3,7 @@ page 50100 test
 
     PageType = List;
     SourceTable = Customer;
-    Caption = 'Ini Fork Hendra';
+    Caption = 'Ini Fork Test';
     ApplicationArea = Basic;
     UsageCategory = Lists;
     Editable = false;
