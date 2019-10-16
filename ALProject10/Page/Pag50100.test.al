@@ -19,6 +19,10 @@ page 50100 test
                     ApplicationArea = All;
                     Style = Ambiguous;
                 }
+                field(Blocked; Blocked)
+                {
+                    ApplicationArea = All;
+                }
                 field(Address; Address)
                 {
                     ApplicationArea = All;
