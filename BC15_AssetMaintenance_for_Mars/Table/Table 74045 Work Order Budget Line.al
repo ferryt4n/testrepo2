@@ -1,0 +1,1149 @@
+table 74045 "MCH Work Order Budget Line"
+{
+    Caption = 'Work Order Budget Line';
+    DataCaptionFields = Status,"Work Order No.";
+    DrillDownPageID = "MCH Work Order Budget Lines";
+    LookupPageID = "MCH Work Order Budget Lines";
+    PasteIsValid = false;
+
+    fields
+    {
+        field(1;Status;Option)
+        {
+            Caption = 'Work Order Status';
+            OptionCaption = 'Request,Planned,Released,Finished';
+            OptionMembers = Request,Planned,Released,Finished;
+        }
+        field(2;"Work Order No.";Code[20])
+        {
+            Caption = 'Work Order No.';
+            TableRelation = "MCH Work Order Header"."No." WHERE (Status=FIELD(Status));
+        }
+        field(3;"Line No.";Integer)
+        {
+            Caption = 'Line No.';
+            Editable = false;
+        }
+        field(5;"Asset No.";Code[20])
+        {
+            Caption = 'Asset No.';
+            Editable = false;
+            TableRelation = "MCH Maintenance Asset";
+        }
+        field(6;"Work Order Line No.";Integer)
+        {
+            Caption = 'Work Order Line No.';
+            TableRelation = "MCH Work Order Line"."Line No." WHERE (Status=FIELD(Status),
+                                                                    "Work Order No."=FIELD("Work Order No."));
+
+            trigger OnValidate()
+            begin
+                if ("Work Order Line No." <> 0) then
+                  TestField("Work Order No.");
+                if "Work Order Line No." <> xRec."Work Order Line No." then
+                  UpdateFromWorkOrderLine;
+            end;
+        }
+        field(7;"Maint. Task Code";Code[20])
+        {
+            Caption = 'Maint. Task Code';
+            DataClassification = CustomerContent;
+            Editable = false;
+            TableRelation = "MCH Master Maintenance Task";
+        }
+        field(10;Type;Option)
+        {
+            Caption = 'Type';
+            OptionCaption = ' ,Item,Spare Part,Cost,Resource,Team,Trade';
+            OptionMembers = " ",Item,"Spare Part",Cost,Resource,Team,Trade;
+
+            trigger OnValidate()
+            var
+                TempWorkOrderBudgLine: Record "MCH Work Order Budget Line" temporary;
+            begin
+                if Type <> xRec.Type then
+                  TestReferences(FieldCaption(Type));
+                TestField("Work Order No.");
+                TestField("Work Order Line No.");
+                TempWorkOrderBudgLine := Rec;
+                Init;
+                Type := TempWorkOrderBudgLine.Type;
+                "Work Order Line No." := TempWorkOrderBudgLine."Work Order Line No.";
+                UpdateFromWorkOrderLine;
+            end;
+        }
+        field(11;"No.";Code[20])
+        {
+            Caption = 'No.';
+            TableRelation = IF (Type=CONST(" ")) "Standard Text"
+                            ELSE IF (Type=CONST(Item)) Item
+                            ELSE IF (Type=CONST("Spare Part")) "MCH Maintenance Spare Part"
+                            ELSE IF (Type=CONST(Cost)) "MCH Maintenance Cost"
+                            ELSE IF (Type=CONST(Resource)) Resource
+                            ELSE IF (Type=CONST(Team)) "MCH Maintenance Team"
+                            ELSE IF (Type=CONST(Trade)) "MCH Maintenance Trade";
+
+            trigger OnValidate()
+            var
+                StdTxt: Record "Standard Text";
+                TempWorkOrderBudgLine: Record "MCH Work Order Budget Line" temporary;
+                Item: Record Item;
+                SKU: Record "Stockkeeping Unit";
+                SparePart: Record "MCH Maintenance Spare Part";
+                MaintCost: Record "MCH Maintenance Cost";
+                MaintTrade: Record "MCH Maintenance Trade";
+                Resource: Record Resource;
+                MaintTeam: Record "MCH Maintenance Team";
+            begin
+                if (not CalledOnTaskBudgetTransfer) and (not CalledOnPostingAutoCreate) then begin
+                  if "No." <> xRec."No." then
+                    TestReferences(FieldCaption("No."));
+
+                  TestField("Work Order No.");
+                  TestField("Work Order Line No.");
+                  TempWorkOrderBudgLine := Rec;
+                  Init;
+                  "Work Order Line No." := TempWorkOrderBudgLine."Work Order Line No.";
+                  Type := TempWorkOrderBudgLine.Type;
+                  "No." := TempWorkOrderBudgLine."No.";
+                  UpdateFromWorkOrderLine;
+                end;
+
+                if "No." = '' then
+                  exit;
+                GetSetup;
+
+                case Type of
+                  Type::" ":
+                    begin
+                      StdTxt.Get("No.");
+                      Description := StdTxt.Description;
+                    end;
+                  Type::Item:
+                    begin
+                      GetItem(Item);
+                      Item.TestField(Blocked,false);
+                      if (not Item.IsNonInventoriableType) then
+                        Item.TestField("Gen. Prod. Posting Group");
+                      Item.TestField("Base Unit of Measure");
+                      "Item No." := Item."No.";
+                      Description := Item.Description;
+                      "Description 2" := Item."Description 2";
+                      "Unit of Measure Code" := Item."Base Unit of Measure";
+                      "Indirect Cost %" := Item."Indirect Cost %";
+                      if GetSKU(SKU) and (SKU."Vendor No." <> '') then
+                        "Vendor No." := SKU."Vendor No."
+                      else
+                        "Vendor No." := Item."Vendor No.";
+                    end;
+                  Type::"Spare Part":
+                    begin
+                      SparePart.Get("No.");
+                      SparePart.TestField(Blocked,false);
+                      SparePart.GetItemWithEffectiveValues(Item,true);
+                      "Item No." := Item."No.";
+                      Description := Item.Description;
+                      "Description 2" := Item."Description 2";
+                      "Unit of Measure Code" := Item."Purch. Unit of Measure";
+                      "Indirect Cost %" := Item."Indirect Cost %";
+                      "Vendor No." := Item."Vendor No.";
+                    end;
+                  Type::Cost:
+                    begin
+                      MaintCost.Get("No.");
+                      MaintCost.TestField(Blocked,false);
+                      MaintCost.GetItemWithEffectiveValues(Item,true);
+                      "Item No." := Item."No.";
+                      Description := Item.Description;
+                      "Description 2" := Item."Description 2";
+                      "Unit of Measure Code" := Item."Purch. Unit of Measure";
+                      "Indirect Cost %" := Item."Indirect Cost %";
+                      "Vendor No." := Item."Vendor No.";
+                    end;
+                  Type::Trade:
+                    begin
+                      MaintTrade.Get("No.");
+                      MaintCost.TestField(Blocked,false);
+                      MaintTrade.GetItemWithEffectiveValues(Item,true);
+                      "Item No." := Item."No.";
+                      Description := Item.Description;
+                      "Description 2" := Item."Description 2";
+                      "Unit of Measure Code" := Item."Purch. Unit of Measure";
+                      "Indirect Cost %" := Item."Indirect Cost %";
+                      "Vendor No." := Item."Vendor No.";
+                    end;
+                  Type::Resource:
+                    begin
+                      Resource.Get("No.");
+                      Resource.TestField(Blocked,false);
+                      Resource.TestField("Gen. Prod. Posting Group");
+                      Resource.TestField("Base Unit of Measure");
+                      Description := Resource.Name;
+                      "Unit of Measure Code" := Resource."Base Unit of Measure";
+                      "Indirect Cost %" := Resource."Indirect Cost %";
+                    end;
+                  Type::Team:
+                    begin
+                      MaintTeam.Get("No.");
+                      MaintTeam.TestField(Blocked,false);
+                      MaintTeam.TestField("Base Unit of Measure");
+                      Description := MaintTeam.Description;
+                      "Description 2" := MaintTeam."Description 2";
+                      "Unit of Measure Code" := MaintTeam."Base Unit of Measure";
+                      "Indirect Cost %" := MaintTeam."Indirect Cost %";
+                    end;
+                end;
+
+                if (Type <> Type::" ") and (not CalledOnTaskBudgetTransfer) and (not CalledOnPostingAutoCreate) then begin
+                  Quantity := xRec.Quantity;
+                  Validate("Unit of Measure Code");
+                  UpdateDirectUnitCost(FieldNo("No."));
+                end;
+            end;
+        }
+        field(12;Description;Text[100])
+        {
+            Caption = 'Description';
+        }
+        field(13;"Description 2";Text[50])
+        {
+            Caption = 'Description 2';
+        }
+        field(15;Quantity;Decimal)
+        {
+            Caption = 'Quantity';
+            DecimalPlaces = 0:5;
+
+            trigger OnValidate()
+            begin
+                "Quantity (Base)" := CalcBaseQty(Quantity);
+
+                UpdateDirectUnitCost(FieldNo(Quantity));
+                UpdateHours;
+            end;
+        }
+        field(17;"Direct Unit Cost";Decimal)
+        {
+            AutoFormatType = 2;
+            Caption = 'Direct Unit Cost';
+            MinValue = 0;
+
+            trigger OnValidate()
+            begin
+                UpdateUnitCost;
+                UpdateCostValues;
+            end;
+        }
+        field(18;"Unit Cost";Decimal)
+        {
+            AutoFormatType = 2;
+            Caption = 'Unit Cost';
+            MinValue = 0;
+
+            trigger OnValidate()
+            var
+                Item: Record Item;
+            begin
+                TestField("No.");
+                TestField(Quantity);
+
+                if (Type = Type::Item) then begin
+                  GetItem(Item);
+                  if Item."Costing Method" = Item."Costing Method"::Standard then
+                    Error(
+                      Text003,
+                      FieldCaption("Unit Cost"),Item.FieldCaption("Costing Method"),Item."Costing Method");
+                end;
+
+                if ("Direct Unit Cost" <> 0) then
+                  "Indirect Cost %" := Round(("Unit Cost" - "Direct Unit Cost") / ("Direct Unit Cost") * 100,0.00001)
+                else
+                  "Indirect Cost %" := 0;
+                UpdateCostValues;
+            end;
+        }
+        field(19;"Cost Amount";Decimal)
+        {
+            AutoFormatType = 1;
+            Caption = 'Cost Amount';
+            Editable = false;
+        }
+        field(20;"Indirect Cost %";Decimal)
+        {
+            Caption = 'Indirect Cost %';
+            DecimalPlaces = 0:5;
+            MinValue = 0;
+
+            trigger OnValidate()
+            var
+                Item: Record Item;
+            begin
+                TestField(Type);
+                TestField("No.");
+                if (Type = Type::Item) then begin
+                  GetItem(Item);
+                  if Item."Costing Method" = Item."Costing Method"::Standard then
+                    Error(
+                      Text003,
+                      FieldCaption("Indirect Cost %"),Item.FieldCaption("Costing Method"),Item."Costing Method");
+                end;
+                Validate("Direct Unit Cost");
+            end;
+        }
+        field(21;"Unit of Measure Code";Code[10])
+        {
+            Caption = 'Unit of Measure Code';
+            TableRelation = IF (Type=CONST(Item)) "Item Unit of Measure".Code WHERE ("Item No."=FIELD("No."))
+                            ELSE IF (Type=CONST("Spare Part")) "Item Unit of Measure".Code WHERE ("Item No."=FIELD("Item No."))
+                            ELSE IF (Type=CONST(Cost)) "Item Unit of Measure".Code WHERE ("Item No."=FIELD("Item No."))
+                            ELSE IF (Type=CONST(Trade)) "Item Unit of Measure".Code WHERE ("Item No."=FIELD("Item No."))
+                            ELSE IF (Type=CONST(Resource)) "Resource Unit of Measure".Code WHERE ("Resource No."=FIELD("No."))
+                            ELSE IF (Type=CONST(Team)) "MCH Maint. Unit of Measure"."Unit of Measure Code" WHERE ("Table Name"=CONST(Team),
+                                                                                                                  Code=FIELD("No."))
+                                                                                                                  ELSE "Unit of Measure";
+
+            trigger OnValidate()
+            var
+                ResUnitofMeasure: Record "Resource Unit of Measure";
+                ResCost: Record "Resource Cost";
+                WorkType: Record "Work Type";
+                Item: Record Item;
+                SparePart: Record "MCH Maintenance Spare Part";
+                MaintCost: Record "MCH Maintenance Cost";
+                MaintTrade: Record "MCH Maintenance Trade";
+                Resource: Record Resource;
+                MaintTeam: Record "MCH Maintenance Team";
+            begin
+                if "Unit of Measure Code" <> xRec."Unit of Measure Code" then
+                  TestReferences(FieldCaption("Unit of Measure Code"));
+
+                "Qty. per Unit of Measure" := 1;
+
+                if ("No." <> '') then begin
+                  TestField("Unit of Measure Code");
+                  case Type of
+                    Type::Item :
+                      begin
+                        GetItem(Item);
+                        "Item No." := Item."No.";
+                        "Qty. per Unit of Measure" := UOMMgt.GetQtyPerUnitOfMeasure(Item,"Unit of Measure Code");
+                        "Unit Cost" := Item."Unit Cost" * "Qty. per Unit of Measure";
+                      end;
+                    Type::"Spare Part" :
+                      begin
+                        SparePart.Get("No.");
+                        SparePart.GetItem(Item);
+                        "Item No." := Item."No.";
+                        "Qty. per Unit of Measure" := UOMMgt.GetQtyPerUnitOfMeasure(Item,"Unit of Measure Code");
+                        "Unit Cost" := SparePart."Fixed Direct Unit Cost" * "Qty. per Unit of Measure";
+                      end;
+                    Type::Cost :
+                      begin
+                        MaintCost.Get("No.");
+                        MaintCost.GetItem(Item);
+                        "Item No." := Item."No.";
+                        "Qty. per Unit of Measure" := UOMMgt.GetQtyPerUnitOfMeasure(Item,"Unit of Measure Code");
+                        "Unit Cost" := MaintCost."Fixed Direct Unit Cost" * "Qty. per Unit of Measure";
+                      end;
+                    Type::Trade :
+                      begin
+                        MaintTrade.Get("No.");
+                        MaintTrade.GetItem(Item);
+                        "Item No." := Item."No.";
+                        AMFunction.TestIfUOMTimeBased("Unit of Measure Code",true);
+                        "Qty. per Unit of Measure" := UOMMgt.GetQtyPerUnitOfMeasure(Item,"Unit of Measure Code");
+                        "Unit Cost" := MaintTrade."Fixed Direct Unit Cost" * "Qty. per Unit of Measure";
+                      end;
+                    Type::Resource :
+                      begin
+                        if "Resource Work Type Code" <> '' then begin
+                          WorkType.Get("Resource Work Type Code");
+                          if WorkType."Unit of Measure Code" <> '' then
+                            TestField("Unit of Measure Code",WorkType."Unit of Measure Code");
+                        end;
+                        if "Unit of Measure Code" = '' then begin
+                          Resource.Get("No.");
+                          "Unit of Measure Code" := Resource."Base Unit of Measure";
+                        end;
+                        ResUnitofMeasure.Get("No.","Unit of Measure Code");
+                        ResUnitofMeasure.TestField("Related to Base Unit of Meas.",true);
+                        "Qty. per Unit of Measure" := ResUnitofMeasure."Qty. per Unit of Measure";
+                        AMFunction.TestIfUOMTimeBased("Unit of Measure Code",true);
+                        "Unit Cost" :=  Resource."Unit Cost" * "Qty. per Unit of Measure";
+                      end;
+                    Type::Team :
+                      begin
+                        MaintTeam.Get("No.");
+                        "Qty. per Unit of Measure" := AMFunction.GetTeamQtyPerUOM(MaintTeam,"Unit of Measure Code");
+                        AMFunction.TestIfUOMTimeBased("Unit of Measure Code",true);
+                        "Unit Cost" :=  MaintTeam."Unit Cost" * "Qty. per Unit of Measure";
+                      end;
+                  end;
+                end;
+
+                UpdateDirectUnitCost(FieldNo("Unit of Measure Code"));
+                Validate(Quantity);
+            end;
+        }
+        field(22;"Location Code";Code[10])
+        {
+            Caption = 'Location Code';
+            TableRelation = Location WHERE ("Use As In-Transit"=CONST(false));
+
+            trigger OnValidate()
+            var
+                Item: Record Item;
+            begin
+                if Type = Type::Item then
+                  UpdateDirectUnitCost(FieldNo("Location Code"));
+            end;
+        }
+        field(23;"Resource Work Type Code";Code[10])
+        {
+            Caption = 'Resource Work Type Code';
+            TableRelation = "Work Type";
+
+            trigger OnValidate()
+            var
+                WorkType: Record "Work Type";
+                Resource: Record Resource;
+            begin
+                if (Type <> Type::Resource) then
+                  FieldError(Type);
+                TestField("No.");
+                GetSetup;
+
+                if ("Resource Work Type Code" ='') and (xRec."Resource Work Type Code" <>'') then begin
+                  Resource.Get("No.");
+                  "Unit of Measure Code" := Resource."Base Unit of Measure";
+                end;
+                if ("Resource Work Type Code" <> '') then begin
+                  WorkType.Get("Resource Work Type Code");
+                  if WorkType."Unit of Measure Code" <> '' then
+                    "Unit of Measure Code" := WorkType."Unit of Measure Code"
+                  else begin
+                    Resource.Get("No.");
+                    "Unit of Measure Code" := Resource."Base Unit of Measure";
+                  end;
+                end;
+
+                Validate("Unit of Measure Code");
+                UpdateDirectUnitCost(FieldNo("Resource Work Type Code"));
+            end;
+        }
+        field(24;"Variant Code";Code[10])
+        {
+            Caption = 'Variant Code';
+            TableRelation = IF (Type=CONST(Item)) "Item Variant".Code WHERE ("Item No."=FIELD("No."));
+
+            trigger OnValidate()
+            var
+                ItemVariant: Record "Item Variant";
+                Item: Record Item;
+            begin
+                if "Variant Code" <> '' then
+                  TestField(Type,Type::Item);
+                if Type = Type::Item then
+                  UpdateDirectUnitCost(FieldNo("Variant Code"))
+                else
+                  exit;
+
+                if "Variant Code" = '' then begin
+                  GetItem(Item);
+                  Description := Item.Description;
+                  "Description 2" := Item."Description 2";
+                end else begin
+                  ItemVariant.Get("No.","Variant Code");
+                  Description := ItemVariant.Description;
+                  "Description 2" := ItemVariant."Description 2";
+                end;
+            end;
+        }
+        field(25;"Qty. per Unit of Measure";Decimal)
+        {
+            Caption = 'Qty. per Unit of Measure';
+            DecimalPlaces = 0:5;
+            Editable = false;
+            InitValue = 1;
+        }
+        field(26;"Quantity (Base)";Decimal)
+        {
+            Caption = 'Quantity (Base)';
+            DecimalPlaces = 0:5;
+
+            trigger OnValidate()
+            begin
+                TestField("Qty. per Unit of Measure",1);
+                Validate(Quantity,"Quantity (Base)");
+                UpdateDirectUnitCost(FieldNo("Quantity (Base)"));
+            end;
+        }
+        field(27;Hours;Decimal)
+        {
+            BlankZero = true;
+            Caption = 'Hours';
+            DecimalPlaces = 0:5;
+            Editable = false;
+            MinValue = 0;
+        }
+        field(40;Priority;Option)
+        {
+            Caption = 'Priority';
+            OptionCaption = 'Very High,High,Medium,Low,Very Low';
+            OptionMembers = "Very High",High,Medium,Low,"Very Low";
+        }
+        field(50;"Starting Date";Date)
+        {
+            Caption = 'Starting Date';
+
+            trigger OnValidate()
+            begin
+                CheckStartEndDateTimes(FieldCaption("Starting Date"));
+            end;
+        }
+        field(53;"Ending Date";Date)
+        {
+            Caption = 'Ending Date';
+
+            trigger OnValidate()
+            begin
+                CheckStartEndDateTimes(FieldCaption("Ending Date"));
+            end;
+        }
+        field(60;"Auto Created";Boolean)
+        {
+            Caption = 'Auto Created';
+            Editable = false;
+        }
+        field(70;"Vendor No.";Code[20])
+        {
+            Caption = 'Vendor No.';
+            TableRelation = IF (Type=CONST(Item)) Vendor
+                            ELSE IF (Type=CONST("Spare Part")) Vendor
+                            ELSE IF (Type=CONST(Cost)) Vendor
+                            ELSE IF (Type=CONST(Trade)) Vendor;
+
+            trigger OnValidate()
+            begin
+                if ("No." <> '') and (Type in [Type::Item,Type::Cost,Type::"Spare Part",Type::Trade]) then
+                  UpdateDirectUnitCost(FieldNo("Vendor No."));
+            end;
+        }
+        field(71;"Vendor Name";Text[100])
+        {
+            CalcFormula = Lookup(Vendor.Name WHERE ("No."=FIELD("Vendor No.")));
+            Caption = 'Vendor Name';
+            Editable = false;
+            FieldClass = FlowField;
+        }
+        field(79;"Item No.";Code[20])
+        {
+            Caption = 'Item No.';
+            DataClassification = CustomerContent;
+            Editable = false;
+            TableRelation = Item;
+        }
+        field(88;"Purch. Order Amt. Outst.";Decimal)
+        {
+            AutoFormatType = 1;
+            BlankZero = true;
+            CalcFormula = Sum("Purchase Line"."Outstanding Amt. Ex. VAT (LCY)" WHERE ("Document Type"=CONST(Order),
+                                                                                      "MCH Work Order No."=FIELD("Work Order No."),
+                                                                                      "MCH WO Budget Line No."=FIELD("Line No.")));
+            Caption = 'Purch. Order Amt. Outst.';
+            Editable = false;
+            FieldClass = FlowField;
+        }
+        field(89;"Purch. Order Qty. Rcd.Not Inv.";Decimal)
+        {
+            BlankZero = true;
+            CalcFormula = Sum("Purchase Line"."Qty. Rcd. Not Invoiced (Base)" WHERE ("Document Type"=CONST(Order),
+                                                                                     "MCH Work Order No."=FIELD("Work Order No."),
+                                                                                     "MCH WO Budget Line No."=FIELD("Line No.")));
+            Caption = 'Purch. Order Qty. Rcvd. Not Inv.';
+            DecimalPlaces = 0:5;
+            Editable = false;
+            FieldClass = FlowField;
+        }
+        field(91;"Purch. Order Qty. Outst.";Decimal)
+        {
+            BlankZero = true;
+            CalcFormula = Sum("Purchase Line"."Outstanding Qty. (Base)" WHERE ("Document Type"=CONST(Order),
+                                                                               "MCH Work Order No."=FIELD("Work Order No."),
+                                                                               "MCH WO Budget Line No."=FIELD("Line No.")));
+            Caption = 'Purch. Order Qty. Outst.';
+            DecimalPlaces = 0:5;
+            Editable = false;
+            FieldClass = FlowField;
+        }
+        field(92;"Posted Qty. (Base)";Decimal)
+        {
+            BlankZero = true;
+            CalcFormula = Sum("MCH Asset Maint. Ledger Entry"."Quantity (Base)" WHERE ("Work Order No."=FIELD("Work Order No."),
+                                                                                       "Work Order Budget Line No."=FIELD("Line No.")));
+            Caption = 'Posted Qty. (Base)';
+            DecimalPlaces = 0:5;
+            Editable = false;
+            FieldClass = FlowField;
+        }
+        field(96;"Invoiced Qty. (Base)";Decimal)
+        {
+            BlankZero = true;
+            CalcFormula = Sum("MCH Asset Maint. Ledger Entry"."Qty. Invoiced (Base)" WHERE ("Work Order No."=FIELD("Work Order No."),
+                                                                                            "Work Order Budget Line No."=FIELD("Line No.")));
+            Caption = 'Invoiced Qty. (Base)';
+            DecimalPlaces = 0:5;
+            Editable = false;
+            FieldClass = FlowField;
+        }
+        field(98;"Posted Hours";Decimal)
+        {
+            BlankZero = true;
+            CalcFormula = Sum("MCH Asset Maint. Ledger Entry".Hours WHERE ("Work Order No."=FIELD("Work Order No."),
+                                                                           "Work Order Budget Line No."=FIELD("Line No.")));
+            Caption = 'Posted Hours';
+            DecimalPlaces = 0:5;
+            Editable = false;
+            FieldClass = FlowField;
+        }
+    }
+
+    keys
+    {
+        key(Key1;Status,"Work Order No.","Line No.")
+        {
+            Clustered = true;
+        }
+        key(Key2;"Work Order No.","Line No.",Status)
+        {
+        }
+        key(Key3;Status,"Work Order No.","Work Order Line No.")
+        {
+        }
+        key(Key4;Status,"Work Order No.",Type,"No.")
+        {
+            SumIndexFields = "Cost Amount","Quantity (Base)",Hours;
+        }
+    }
+
+    fieldgroups
+    {
+        fieldgroup(DropDown;Status,"Work Order No.","Line No.","Asset No.",Type,"No.",Description)
+        {
+        }
+        fieldgroup(Brick;Status,"Work Order No.","Line No.","Asset No.",Type,"No.",Description)
+        {
+        }
+    }
+
+    trigger OnDelete()
+    var
+        AMLedgEntry: Record "MCH Asset Maint. Ledger Entry";
+        PurchLine: Record "Purchase Line";
+    begin
+        if Status = Status::Finished then
+          Error(Text001,Status,TableCaption);
+
+        AMLedgEntry.Reset;
+        AMLedgEntry.SetCurrentKey("Work Order No.","Work Order Budget Line No.");
+        AMLedgEntry.SetRange("Work Order No.","Work Order No.");
+        AMLedgEntry.SetRange("Work Order Budget Line No.","Line No.");
+        if not AMLedgEntry.IsEmpty then
+          Error(
+            Text006,Status,TableCaption,FieldCaption("Work Order No."),
+            "Work Order No.",FieldCaption("Line No."),"Line No.");
+
+        PurchLine.Reset;
+        PurchLine.SetCurrentKey("Document Type","MCH Work Order No.","MCH WO Budget Line No.");
+        PurchLine.SetRange("MCH Work Order No.","Work Order No.");
+        PurchLine.SetRange("MCH WO Budget Line No.","Line No.");
+        if PurchLine.FindFirst then
+          Error(
+            Text005,Status,TableCaption,FieldCaption("Work Order No."),"Work Order No.",
+            FieldCaption("Line No."),"Line No.",PurchLine."Document Type");
+    end;
+
+    trigger OnInsert()
+    var
+        Rec2: Record "MCH Work Order Budget Line";
+    begin
+        if Status = Status::Finished then
+          Error(Text001,Status,TableCaption);
+        TestField("Work Order No.");
+        if ("Line No." = 0) then begin
+          Rec2 := Rec;
+          "Line No." := GetNextLineNo(Rec2,true);
+        end;
+        TestField("Work Order Line No.");
+    end;
+
+    trigger OnModify()
+    begin
+        if Status = Status::Finished then
+          Error(Text001,Status,TableCaption);
+    end;
+
+    trigger OnRename()
+    begin
+        Error(Text002,TableCaption);
+    end;
+
+    var
+        Text001: Label 'A %1 %2 cannot be inserted, modified, or deleted.';
+        Text002: Label 'You cannot rename a %1.';
+        GLSetup: Record "General Ledger Setup";
+        AMSetup: Record "MCH Asset Maintenance Setup";
+        WorkOrder: Record "MCH Work Order Header";
+        WorkOrderLine: Record "MCH Work Order Line";
+        AMCostCalcMgt: Codeunit "MCH AM Cost Mgt.";
+        UOMMgt: Codeunit "Unit of Measure Management";
+        Text003: Label 'You cannot change %1 when %2 is %3.';
+        AMFunction: Codeunit "MCH AM Functions";
+        SetupRead: Boolean;
+        Text005: Label 'You cannot delete %1 %2, %3 %4, %5 %6 because there is at least one Purchase %7 that includes this line.';
+        Text006: Label 'You cannot delete %1 %2, %3 %4, %5 %6 because it has posted ledger entries.';
+        Text008: Label 'You cannot change %8 in %1 %2, %3 %4, %5 %6 because there is at least one Purchase %7 that includes this line.';
+        Text009: Label 'You cannot change %7 in %1 %2, %3 %4, %5 %6 because the line has posted ledger entries.';
+        Text010: Label '%1 cannot be less than %2.';
+        Text011: Label '%1 cannot be higher than %2.';
+        Text012: Label 'cannot be later than %1';
+        CalledOnTaskBudgetTransfer: Boolean;
+        CalledOnPostingAutoCreate: Boolean;
+
+    local procedure GetWorkOrder()
+    begin
+        TestField("Work Order No.");
+        if (Status <> WorkOrder.Status) or ("Work Order No." <> WorkOrder."No.") then
+          WorkOrder.Get(Status,"Work Order No.");
+    end;
+
+
+    procedure UpdateFromWorkOrderLine()
+    begin
+        GetWorkOrder;
+        if "Work Order Line No." <> 0 then begin
+          WorkOrderLine.Get(Status,"Work Order No.","Work Order Line No.");
+          if WorkOrderLine."Asset No." = '' then
+            Clear(WorkOrderLine);
+        end else
+          Clear(WorkOrderLine);
+
+        TransferFromWorkOrderLine(WorkOrderLine);
+    end;
+
+
+    procedure TransferFromWorkOrderLine(FromWorkOrderLine: Record "MCH Work Order Line")
+    begin
+        "Work Order Line No." := FromWorkOrderLine."Line No.";
+        "Asset No." := FromWorkOrderLine."Asset No.";
+        "Starting Date" := FromWorkOrderLine."Starting Date";
+        "Ending Date" := FromWorkOrderLine."Ending Date";
+        "Location Code" := FromWorkOrderLine."Def. Invt. Location Code";
+    end;
+
+
+    procedure TransferFromMaintTaskBudgLine(MaintTaskBudgetLine: Record "MCH Maint. Task Budget Line")
+    var
+        Item: Record Item;
+    begin
+        CalledOnTaskBudgetTransfer := true;
+        "Maint. Task Code" := MaintTaskBudgetLine."Task Code";
+
+        Type := MaintTaskBudgetLine.Type;
+        Validate("No.",MaintTaskBudgetLine."No.");
+        Description := MaintTaskBudgetLine.Description;
+        "Description 2" := MaintTaskBudgetLine."Description 2";
+        if (Type = Type::" ") or ("No." = '') then
+          exit;
+
+        case Type of
+          Type::Item:
+            begin
+              "Variant Code" := MaintTaskBudgetLine."Variant Code";
+              "Vendor No." := MaintTaskBudgetLine."Vendor No.";
+            end;
+          Type::"Spare Part":
+            begin
+              "Vendor No." := MaintTaskBudgetLine."Vendor No.";
+            end;
+          Type::Cost:
+            begin
+              "Vendor No." := MaintTaskBudgetLine."Vendor No.";
+            end;
+          Type::Trade:
+            begin
+              "Vendor No." := MaintTaskBudgetLine."Vendor No.";
+            end;
+          Type::Resource:
+            begin
+              "Resource Work Type Code" := MaintTaskBudgetLine."Resource Work Type Code";
+            end;
+          Type::Team:
+            begin
+            end;
+        end;
+
+        if (MaintTaskBudgetLine."Location Code" <> '') then
+          "Location Code" := MaintTaskBudgetLine."Location Code";
+        if ("Item No." <> '') then begin
+          if ("Location Code" <> '') then begin
+            Item.Get("Item No.");
+            if (Item.Type <> Item.Type::Inventory) then
+              "Location Code" := '';
+          end;
+        end else
+          "Location Code" := '';
+
+        Validate("Unit of Measure Code",MaintTaskBudgetLine."Unit of Measure Code");
+        Validate(Quantity,MaintTaskBudgetLine.Quantity);
+
+        CalledOnTaskBudgetTransfer := false;
+    end;
+
+
+    procedure AutoCreateOnMaintJnlLinePosting(var MaintJnlLine: Record "MCH Maint. Journal Line")
+    var
+        Item: Record Item;
+    begin
+        CalledOnPostingAutoCreate := true;
+
+        UpdateFromWorkOrderLine;
+        Type := MaintJnlLine.Type;
+        Validate("No.",MaintJnlLine."No.");
+        "Auto Created" := true;
+        case Type of
+          Type::Item:
+            begin
+              "Location Code" := MaintJnlLine."Location Code";
+              "Variant Code" := MaintJnlLine."Variant Code";
+            end;
+          Type::Resource:
+            begin
+              "Resource Work Type Code" := MaintJnlLine."Resource Work Type Code";
+            end;
+          Type::Team:
+            begin
+            end;
+        end;
+        Validate("Unit of Measure Code",MaintJnlLine."Unit of Measure Code");
+        if (Quantity <> 0) then
+          Validate(Quantity,0);
+
+        CalledOnPostingAutoCreate := false;
+    end;
+
+
+    procedure AutoCreateOnPurchaseLinePost(var PurchLine: Record "Purchase Line")
+    var
+        GLSetup: Record "General Ledger Setup";
+        Item: Record Item;
+        PurchHeader: Record "Purchase Header";
+        DirUnitCost: Decimal;
+    begin
+        CalledOnPostingAutoCreate := true;
+
+        UpdateFromWorkOrderLine;
+        case PurchLine."MCH WO Purchase Type" of
+          PurchLine."MCH WO Purchase Type"::"Spare Part":
+            Type := Type::"Spare Part";
+          PurchLine."MCH WO Purchase Type"::Cost:
+            Type := Type::Cost;
+          PurchLine."MCH WO Purchase Type"::Trade:
+            Type := Type::Trade;
+        end;
+        Validate("No.",PurchLine."MCH WO Purchase Code");
+        "Auto Created" := true;
+        if ("Vendor No." <> PurchLine."Buy-from Vendor No.") then
+          Validate("Vendor No.",PurchLine."Buy-from Vendor No.");
+        if ("Unit of Measure Code" <> PurchLine."Unit of Measure Code") then
+          Validate("Unit of Measure Code",PurchLine."Unit of Measure Code");
+        if (Quantity <> 0) then
+          Validate(Quantity,0);
+
+        DirUnitCost := PurchLine."Direct Unit Cost";
+        if (DirUnitCost <> 0) then begin
+          PurchHeader.Get(PurchLine."Document Type",PurchLine."Document No.");
+          if (PurchHeader."Currency Code" = '') then begin
+            if PurchHeader."Prices Including VAT" then begin
+              GLSetup.Get;
+              DirUnitCost := Round(DirUnitCost / (1 + PurchLine."VAT %" / 100),GLSetup."Unit-Amount Rounding Precision");
+            end;
+            Validate("Direct Unit Cost",DirUnitCost);
+          end;
+        end;
+
+        CalledOnPostingAutoCreate := false;
+    end;
+
+    local procedure UpdateDirectUnitCost(CalledByFieldNo: Integer)
+    begin
+        if ((CalledByFieldNo <> CurrFieldNo) and (CurrFieldNo <> 0)) then
+          exit;
+
+        AMCostCalcMgt.FindWorkOrderBudgetDirectUnitCost(Rec,CalledByFieldNo);
+        Validate("Direct Unit Cost");
+    end;
+
+
+    procedure UpdateUnitCost()
+    var
+        Item: Record Item;
+        SKU: Record "Stockkeeping Unit";
+    begin
+        GetSetup;
+        "Unit Cost" := ("Direct Unit Cost") * (1 + "Indirect Cost %" / 100);
+
+        if (Type = Type::Item) then begin
+          GetItem(Item);
+          if Item."Costing Method" = Item."Costing Method"::Standard then begin
+            if GetSKU(SKU) then
+              "Unit Cost" := SKU."Unit Cost" * "Qty. per Unit of Measure"
+            else
+              "Unit Cost" := Item."Unit Cost" * "Qty. per Unit of Measure";
+          end;
+        end;
+        "Unit Cost" := Round("Unit Cost",GLSetup."Unit-Amount Rounding Precision");
+    end;
+
+
+    procedure UpdateCostValues()
+    begin
+        if (Quantity * "Unit Cost") = 0 then begin
+          "Cost Amount" := 0;
+        end else begin
+          TestField(Type);
+          TestField("No.");
+          GetSetup;
+          "Cost Amount" := Round(Quantity * "Unit Cost",GLSetup."Amount Rounding Precision");
+        end;
+    end;
+
+
+    procedure UpdateHours()
+    begin
+        if Type in [Type::Cost,Type::Resource,Type::Team,Type::Trade] then
+          Hours := AMFunction.GetHoursPerTimeUOM(Quantity,"Unit of Measure Code")
+        else
+          Hours := 0;
+    end;
+
+    local procedure GetItem(var Item: Record Item)
+    begin
+        TestField("No.");
+        if Item."No." <> "No." then
+          Item.Get("No.");
+    end;
+
+    local procedure GetSKU(var SKU: Record "Stockkeeping Unit"): Boolean
+    begin
+        TestField(Type,Type::Item);
+        TestField("No.");
+        Clear(SKU);
+        if (SKU."Location Code" = "Location Code") and
+           (SKU."Item No." = "No.") and
+           (SKU."Variant Code" = "Variant Code")
+        then
+          exit(true);
+        if SKU.Get("Location Code","No.","Variant Code") then
+          exit(true)
+        else
+          exit(false);
+    end;
+
+    local procedure GetSetup()
+    begin
+        if SetupRead then
+          exit;
+        GLSetup.Get;
+        AMSetup.Get;
+        SetupRead := true;
+    end;
+
+    local procedure CalcBaseQty(Qty: Decimal): Decimal
+    begin
+        TestField("Qty. per Unit of Measure");
+        exit(Round(Qty * "Qty. per Unit of Measure",0.00001));
+    end;
+
+
+    procedure GetNextLineNo(PrevWorkOrderBudgetLine: Record "MCH Work Order Budget Line";BelowxRec: Boolean) NextLineNo: Integer
+    var
+        Rec2: Record "MCH Work Order Budget Line";
+        LoLineNo: Integer;
+        HiLineNo: Integer;
+        LineStep: Integer;
+    begin
+        LoLineNo := 0;
+        HiLineNo := 0;
+        LineStep := 10000;
+        Rec2.SetRange(Status,Status);
+        Rec2.SetRange("Work Order No.","Work Order No.");
+
+        if PrevWorkOrderBudgetLine."Line No." = 0 then begin
+          if Rec2.FindLast then
+            NextLineNo := Rec2."Line No." + LineStep
+          else
+            NextLineNo := LineStep;
+        end else begin
+          Rec2 := PrevWorkOrderBudgetLine;
+          if BelowxRec then begin
+            LoLineNo := Rec2."Line No.";
+            if Rec2.Next = 1 then
+              HiLineNo := Rec2."Line No."
+            else
+              NextLineNo := PrevWorkOrderBudgetLine."Line No." + LineStep;
+          end else begin
+            HiLineNo := Rec2."Line No.";
+            if Rec2.Next(-1) = -1 then
+              LoLineNo := Rec2."Line No.";
+          end;
+        end;
+
+        if NextLineNo = 0 then begin
+          NextLineNo := Round((LoLineNo + HiLineNo) / 2,1,'<');
+          if Rec2.Get(PrevWorkOrderBudgetLine.Status,PrevWorkOrderBudgetLine."Work Order No.",NextLineNo) then begin
+            if Rec2.FindLast then
+              NextLineNo := Rec2."Line No." + LineStep
+            else
+              NextLineNo := LineStep;
+          end;
+        end;
+        exit(NextLineNo);
+    end;
+
+    local procedure TestReferences(ChangedFieldName: Text[80])
+    var
+        WorkOrderBudgLine2: Record "MCH Work Order Budget Line";
+        AMLedgEntry: Record "MCH Asset Maint. Ledger Entry";
+        PurchLine: Record "Purchase Line";
+    begin
+        WorkOrderBudgLine2 := Rec;
+        if not WorkOrderBudgLine2.Find then
+          exit;
+
+        if ChangedFieldName in [FieldCaption("No."),FieldCaption(Type)] then begin
+          AMLedgEntry.Reset;
+          AMLedgEntry.SetCurrentKey("Work Order No.","Work Order Budget Line No.");
+          AMLedgEntry.SetRange("Work Order No.","Work Order No.");
+          AMLedgEntry.SetRange("Work Order Budget Line No.","Line No.");
+          if not AMLedgEntry.IsEmpty then
+            Error(
+              Text009,Status,TableCaption,FieldCaption("Work Order No."),
+              "Work Order No.",FieldCaption("Line No."),"Line No.",ChangedFieldName);
+        end;
+
+        PurchLine.Reset;
+        PurchLine.SetCurrentKey("Document Type","MCH Work Order No.","MCH WO Budget Line No.");
+        PurchLine.SetRange("MCH Work Order No.","Work Order No.");
+        PurchLine.SetRange("MCH WO Budget Line No.","Line No.");
+        if PurchLine.FindFirst then
+          Error(
+            Text008,Status,TableCaption,FieldCaption("Work Order No."),"Work Order No.",
+            FieldCaption("Line No."),"Line No.",PurchLine."Document Type",ChangedFieldName);
+    end;
+
+
+    procedure CheckStartEndDateTimes(ChangedFieldName: Text[100])
+    begin
+        // Starting Date validated from code, set Ending Date to start
+        if (CurrFieldNo = 0) and (ChangedFieldName = FieldCaption("Starting Date")) then begin
+          "Ending Date" := "Starting Date";
+        end else begin
+          case ChangedFieldName of
+            FieldCaption("Starting Date") :
+              begin
+                if ("Starting Date" = 0D) then
+                  TestField("Ending Date",0D);
+              end;
+            FieldCaption("Ending Date") :
+              begin
+                if ("Ending Date" <> 0D) then
+                  TestField("Starting Date");
+              end;
+          end;
+          if (("Ending Date" <> 0D) and ("Starting Date" > "Ending Date")) then
+            FieldError("Starting Date",
+              StrSubstNo(Text012,FieldCaption("Ending Date")));
+        end;
+    end;
+
+
+    procedure IsVendorMandatory() IsMandatory: Boolean
+    begin
+        exit(Type in [Type::"Spare Part",Type::Cost,Type::Trade]);
+    end;
+
+
+    procedure ShowItemAvailability(AvailabilityType: Option Date,Variant,Location,Bin,"Event",BOM)
+    var
+        DummyItemJnlLine: Record "Item Journal Line" temporary;
+        ItemAvailFormsMgt: Codeunit "Item Availability Forms Mgt";
+    begin
+        if not ((Type = Type::Item) and ("No." <> '')) then
+          exit;
+        DummyItemJnlLine."Item No." := "No.";
+        DummyItemJnlLine."Posting Date" := "Starting Date";
+        DummyItemJnlLine."Location Code" := "Location Code";
+        DummyItemJnlLine."Variant Code" := "Variant Code";
+        ItemAvailFormsMgt.ShowItemAvailFromItemJnlLine(DummyItemJnlLine,AvailabilityType);
+    end;
+
+
+    procedure ShowAMLedgEntries()
+    var
+        AMLedgEntry: Record "MCH Asset Maint. Ledger Entry";
+    begin
+        if (Type = Type::" ") or ("No." = '') then
+          exit;
+        if not (Status in [Status::Released,Status::Finished]) then
+          exit;
+        AMLedgEntry.SetCurrentKey("Work Order No.","Work Order Budget Line No.");
+        AMLedgEntry.SetRange("Work Order No.","Work Order No.");
+        AMLedgEntry.SetRange("Work Order Budget Line No.","Line No.");
+        PAGE.Run(PAGE::"MCH AM Ledger Entries",AMLedgEntry);
+    end;
+
+
+    procedure ShowPurchaseLines()
+    var
+        PurchLine: Record "Purchase Line";
+    begin
+        if (not (Type in [Type::"Spare Part",Type::Cost,Type::Trade])) or ("No." = '') then
+          exit;
+        if not (Status in [Status::Released,Status::Finished]) then
+          exit;
+        PurchLine.SetCurrentKey("MCH Work Order No.","MCH WO Budget Line No.");
+        PurchLine.SetRange("MCH Work Order No.","Work Order No.");
+        PurchLine.SetRange("MCH WO Budget Line No.","Line No.");
+        PAGE.Run(PAGE::"Purchase Lines",PurchLine);
+    end;
+
+
+    procedure OpenBudgetPage(Status2: Integer;WorkOrderNo2: Code[20];WorkOrderLineLineNo2: Integer)
+    var
+        WorkOrderBudgetLine: Record "MCH Work Order Budget Line";
+        WOBudgetPageID: Integer;
+    begin
+        if (WorkOrderNo2 = '') then
+          exit;
+        WorkOrderBudgetLine.FilterGroup(2);
+        WorkOrderBudgetLine.SetRange(Status,Status2);
+        WorkOrderBudgetLine.SetRange("Work Order No.",WorkOrderNo2);
+        if (WorkOrderLineLineNo2 > 0) then
+          WorkOrderBudgetLine.SetRange("Work Order Line No.",WorkOrderLineLineNo2);
+        WorkOrderBudgetLine.FilterGroup(2);
+
+        case Status2 of
+          Status::Request:
+            WOBudgetPageID := PAGE::"MCH Request WO Budget";
+          Status::Planned:
+            WOBudgetPageID := PAGE::"MCH Planned WO Budget";
+          Status::Released:
+            WOBudgetPageID := PAGE::"MCH Released WO Budget";
+          Status::Finished:
+            WOBudgetPageID := PAGE::"MCH Finished WO Budget";
+        end;
+        PAGE.Run(WOBudgetPageID,WorkOrderBudgetLine);
+    end;
+}
+

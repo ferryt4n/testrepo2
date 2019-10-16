@@ -1,0 +1,41 @@
+{
+  "id": "148364f5-9af9-4ebb-b33a-388a3bc0bea8",
+  "name": "TAM",
+  "publisher": "MicroChannel",
+  "version": "0.0.0.1",
+  "brief": "",
+  "description": "Asset Maintenance",
+  "privacyStatement": "http://www.microchannel.com.au/privacy-policy",
+  "EULA": "http://www.microchannel.com.au",
+  "help": "http://www.microchannel.com.au",
+  "url": "http://www.microchannel.com.au",
+  "logo": "./AppResources/logo/logo.png",
+  "dependencies": [
+    {
+      "appId": "63ca2fa4-4f03-4f2b-a480-172fef340d3f",
+      "publisher": "Microsoft",
+      "name": "System Application",
+      "version": "1.0.0.0"
+    },
+    {
+      "appId": "437dbf0e-84ff-417a-965d-ed2bb9650972",
+      "publisher": "Microsoft",
+      "name": "Base Application",
+      "version": "15.0.0.0"
+    }
+  ],
+  "screenshots": [],
+  "platform": "15.0.0.0",
+  "features": [
+    "TranslationFile"
+  ],
+  "idRanges": [
+    {
+      "from": 74030,
+      "to": 74299
+    }
+  ],
+  "showMyCode": false,
+  "runtime": "4.0",
+  "target": "Cloud"
+}
